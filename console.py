@@ -1,147 +1,334 @@
 #!/usr/bin/python3
-"""A unit test module for the console (command interpreter).
-"""
-import json
-import MySQLdb
-import os
-import sqlalchemy
-import unittest
-from io import StringIO
-from unittest.mock import patch
-
-from console import HBNBCommand
-from models import storage
+""" Console Module """
+import cmd
+import sys
 from models.base_model import BaseModel
+from models.__init__ import storage
 from models.user import User
-from tests import clear_stream
+from models.place import Place
+from models.state import State
+from models.city import City
+from models.amenity import Amenity
+from models.review import Review
 
 
-class TestHBNBCommand(unittest.TestCase):
-    """Represents the test class for the HBNBCommand class.
-    """
-    @unittest.skipIf(
-        os.getenv('HBNB_TYPE_STORAGE') == 'db', 'FileStorage test')
-    def test_fs_create(self):
-        """Tests the create command with the file storage.
+class HBNBCommand(cmd.Cmd):
+    """ Contains the functionality for the HBNB console"""
+
+    # determines prompt for interactive/non-interactive modes
+    prompt = '(hbnb) ' if sys.__stdin__.isatty() else ''
+
+    classes = {
+               'BaseModel': BaseModel, 'User': User, 'Place': Place,
+               'State': State, 'City': City, 'Amenity': Amenity,
+               'Review': Review
+              }
+    dot_cmds = ['all', 'count', 'show', 'destroy', 'update']
+    types = {
+             'number_rooms': int, 'number_bathrooms': int,
+             'max_guest': int, 'price_by_night': int,
+             'latitude': float, 'longitude': float
+            }
+
+    def preloop(self):
+        """Prints if isatty is false"""
+        if not sys.__stdin__.isatty():
+            print('(hbnb)')
+
+    def precmd(self, line):
+        """Reformat command line for advanced command syntax.
+
+        Usage: <class name>.<command>([<id> [<*args> or <**kwargs>]])
+        (Brackets denote optional fields in usage example.)
         """
-        with patch('sys.stdout', new=StringIO()) as cout:
-            cons = HBNBCommand()
-            cons.onecmd('create City name="Texas"')
-            mdl_id = cout.getvalue().strip()
-            clear_stream(cout)
-            self.assertIn('City.{}'.format(mdl_id), storage.all().keys())
-            cons.onecmd('show City {}'.format(mdl_id))
-            self.assertIn("'name': 'Texas'", cout.getvalue().strip())
-            clear_stream(cout)
-            cons.onecmd('create User name="James" age=17 height=5.9')
-            mdl_id = cout.getvalue().strip()
-            self.assertIn('User.{}'.format(mdl_id), storage.all().keys())
-            clear_stream(cout)
-            cons.onecmd('show User {}'.format(mdl_id))
-            self.assertIn("'name': 'James'", cout.getvalue().strip())
-            self.assertIn("'age': 17", cout.getvalue().strip())
-            self.assertIn("'height': 5.9", cout.getvalue().strip())
+        _cmd = _cls = _id = _args = ''  # initialize line elements
 
-    @unittest.skipIf(
-        os.getenv('HBNB_TYPE_STORAGE') != 'db', 'DBStorage test')
-    def test_db_create(self):
-        """Tests the create command with the database storage.
-        """
-        with patch('sys.stdout', new=StringIO()) as cout:
-            cons = HBNBCommand()
-            # creating a model with non-null attribute(s)
-            with self.assertRaises(sqlalchemy.exc.OperationalError):
-                cons.onecmd('create User')
-            # creating a User instance
-            clear_stream(cout)
-            cons.onecmd('create User email="john25@gmail.com" password="123"')
-            mdl_id = cout.getvalue().strip()
-            dbc = MySQLdb.connect(
-                host=os.getenv('HBNB_MYSQL_HOST'),
-                port=3306,
-                user=os.getenv('HBNB_MYSQL_USER'),
-                passwd=os.getenv('HBNB_MYSQL_PWD'),
-                db=os.getenv('HBNB_MYSQL_DB')
-            )
-            cursor = dbc.cursor()
-            cursor.execute('SELECT * FROM users WHERE id="{}"'.format(mdl_id))
-            result = cursor.fetchone()
-            self.assertTrue(result is not None)
-            self.assertIn('john25@gmail.com', result)
-            self.assertIn('123', result)
-            cursor.close()
-            dbc.close()
+        # scan for general formating - i.e '.', '(', ')'
+        if not ('.' in line and '(' in line and ')' in line):
+            return line
 
-    @unittest.skipIf(
-        os.getenv('HBNB_TYPE_STORAGE') != 'db', 'DBStorage test')
-    def test_db_show(self):
-        """Tests the show command with the database storage.
-        """
-        with patch('sys.stdout', new=StringIO()) as cout:
-            cons = HBNBCommand()
-            # showing a User instance
-            obj = User(email="john25@gmail.com", password="123")
-            dbc = MySQLdb.connect(
-                host=os.getenv('HBNB_MYSQL_HOST'),
-                port=3306,
-                user=os.getenv('HBNB_MYSQL_USER'),
-                passwd=os.getenv('HBNB_MYSQL_PWD'),
-                db=os.getenv('HBNB_MYSQL_DB')
-            )
-            cursor = dbc.cursor()
-            cursor.execute('SELECT * FROM users WHERE id="{}"'.format(obj.id))
-            result = cursor.fetchone()
-            self.assertTrue(result is None)
-            cons.onecmd('show User {}'.format(obj.id))
-            self.assertEqual(
-                cout.getvalue().strip(),
-                '** no instance found **'
-            )
-            obj.save()
-            dbc = MySQLdb.connect(
-                host=os.getenv('HBNB_MYSQL_HOST'),
-                port=3306,
-                user=os.getenv('HBNB_MYSQL_USER'),
-                passwd=os.getenv('HBNB_MYSQL_PWD'),
-                db=os.getenv('HBNB_MYSQL_DB')
-            )
-            cursor = dbc.cursor()
-            cursor.execute('SELECT * FROM users WHERE id="{}"'.format(obj.id))
-            clear_stream(cout)
-            cons.onecmd('show User {}'.format(obj.id))
-            result = cursor.fetchone()
-            self.assertTrue(result is not None)
-            self.assertIn('john25@gmail.com', result)
-            self.assertIn('123', result)
-            self.assertIn('john25@gmail.com', cout.getvalue())
-            self.assertIn('123', cout.getvalue())
-            cursor.close()
-            dbc.close()
+        try:  # parse line left to right
+            pline = line[:]  # parsed line
 
-    @unittest.skipIf(
-        os.getenv('HBNB_TYPE_STORAGE') != 'db', 'DBStorage test')
-    def test_db_count(self):
-        """Tests the count command with the database storage.
-        """
-        with patch('sys.stdout', new=StringIO()) as cout:
-            cons = HBNBCommand()
-            dbc = MySQLdb.connect(
-                host=os.getenv('HBNB_MYSQL_HOST'),
-                port=3306,
-                user=os.getenv('HBNB_MYSQL_USER'),
-                passwd=os.getenv('HBNB_MYSQL_PWD'),
-                db=os.getenv('HBNB_MYSQL_DB')
-            )
-            cursor = dbc.cursor()
-            cursor.execute('SELECT COUNT(*) FROM states;')
-            res = cursor.fetchone()
-            prev_count = int(res[0])
-            cons.onecmd('create State name="Enugu"')
-            clear_stream(cout)
-            cons.onecmd('count State')
-            cnt = cout.getvalue().strip()
-            self.assertEqual(int(cnt), prev_count + 1)
-            clear_stream(cout)
-            cons.onecmd('count State')
-            cursor.close()
-            dbc.close()
+            # isolate <class name>
+            _cls = pline[:pline.find('.')]
+
+            # isolate and validate <command>
+            _cmd = pline[pline.find('.') + 1:pline.find('(')]
+            if _cmd not in HBNBCommand.dot_cmds:
+                raise Exception
+
+            # if parantheses contain arguments, parse them
+            pline = pline[pline.find('(') + 1:pline.find(')')]
+            if pline:
+                # partition args: (<id>, [<delim>], [<*args>])
+                pline = pline.partition(', ')  # pline convert to tuple
+
+                # isolate _id, stripping quotes
+                _id = pline[0].replace('\"', '')
+                # possible bug here:
+                # empty quotes register as empty _id when replaced
+
+                # if arguments exist beyond _id
+                pline = pline[2].strip()  # pline is now str
+                if pline:
+                    # check for *args or **kwargs
+                    if pline[0] == '{' and pline[-1] =='}'\
+                            and type(eval(pline)) is dict:
+                        _args = pline
+                    else:
+                        _args = pline.replace(',', '')
+                        # _args = _args.replace('\"', '')
+            line = ' '.join([_cmd, _cls, _id, _args])
+
+        except Exception as mess:
+            pass
+        finally:
+            return line
+
+    def postcmd(self, stop, line):
+        """Prints if isatty is false"""
+        if not sys.__stdin__.isatty():
+            print('(hbnb) ', end='')
+        return stop
+
+    def do_quit(self, command):
+        """ Method to exit the HBNB console"""
+        exit()
+
+    def help_quit(self):
+        """ Prints the help documentation for quit  """
+        print("Exits the program with formatting\n")
+
+    def do_EOF(self, arg):
+        """ Handles EOF to exit program """
+        print()
+        exit()
+
+    def help_EOF(self):
+        """ Prints the help documentation for EOF """
+        print("Exits the program without formatting\n")
+
+    def emptyline(self):
+        """ Overrides the emptyline method of CMD """
+        pass
+
+    def do_create(self, args):
+        """ Create an object of any class"""
+        args_list = args.split(' ')
+        class_name = args_list[0]
+        if not class_name:
+            print("** class name missing **")
+            return
+        elif class_name not in HBNBCommand.classes:
+            print("** class doesn't exist **")
+            return
+        new_instance = HBNBCommand.classes[class_name]()
+        for i in range(1, len(args_list)):
+            attr, value = args_list[i].split('=')
+            if value[0] == '"' and value[-1] == '"':
+                value = value[1:-1].replace('_', ' ').replace('"', '\\"')
+                setattr(new_instance, attr, value)
+            elif '.' in value:
+                value = float(value)
+                setattr(new_instance, attr, value)
+            elif value.isnumeric():
+                value = int(value)  
+                setattr(new_instance, attr, value)
+        new_instance.save()
+        print(new_instance.id)
+     
+    def help_create(self):
+        """ Help information for the create method """
+        print("Creates a class of any type")
+        print("[Usage]: create <className>\n")
+
+    def do_show(self, args):
+        """ Method to show an individual object """
+        new = args.partition(" ")
+        c_name = new[0]
+        c_id = new[2]
+
+        # guard against trailing args
+        if c_id and ' ' in c_id:
+            c_id = c_id.partition(' ')[0]
+
+        if not c_name:
+            print("** class name missing **")
+            return
+
+        if c_name not in HBNBCommand.classes:
+            print("** class doesn't exist **")
+            return
+
+        if not c_id:
+            print("** instance id missing **")
+            return
+
+        key = c_name + "." + c_id
+        try:
+            print(storage._FileStorage__objects[key])
+        except KeyError:
+            print("** no instance found **")
+
+    def help_show(self):
+        """ Help information for the show command """
+        print("Shows an individual instance of a class")
+        print("[Usage]: show <className> <objectId>\n")
+
+    def do_destroy(self, args):
+        """ Destroys a specified object """
+        new = args.partition(" ")
+        c_name = new[0]
+        c_id = new[2]
+        if c_id and ' ' in c_id:
+            c_id = c_id.partition(' ')[0]
+
+        if not c_name:
+            print("** class name missing **")
+            return
+
+        if c_name not in HBNBCommand.classes:
+            print("** class doesn't exist **")
+            return
+
+        if not c_id:
+            print("** instance id missing **")
+            return
+
+        key = c_name + "." + c_id
+
+        try:
+            del(storage.all()[key])
+            storage.save()
+        except KeyError:
+            print("** no instance found **")
+
+    def help_destroy(self):
+        """ Help information for the destroy command """
+        print("Destroys an individual instance of a class")
+        print("[Usage]: destroy <className> <objectId>\n")
+
+    def do_all(self, args):
+        """ Shows all objects, or all objects of a class"""
+        print_list = []
+        if args:
+            args = args.split(' ')[0]  # remove possible trailing args
+            if args not in HBNBCommand.classes:
+                print("** class doesn't exist **")
+                return
+            for v in storage.all(HBNBCommand.classes[args]).values():
+                print_list.append(str(v))
+        else:
+            for v in storage.all().values():
+                print_list.append(str(v))
+
+        print(print_list)
+
+    def help_all(self):
+        """ Help information for the all command """
+        print("Shows all objects, or all of a class")
+        print("[Usage]: all <className>\n")
+
+    def do_count(self, args):
+        """Count current number of class instances"""
+        count = 0
+        for k, v in storage._FileStorage__objects.items():
+            if args == k.split('.')[0]:
+                count += 1
+        print(count)
+
+    def help_count(self):
+        """ """
+        print("Usage: count <class_name>")
+
+    def do_update(self, args):
+        """ Updates a certain object with new info """
+        c_name = c_id = att_name = att_val = kwargs = ''
+
+        # isolate cls from id/args, ex: (<cls>, delim, <id/args>)
+        args = args.partition(" ")
+        if args[0]:
+            c_name = args[0]
+        else:  # class name not present
+            print("** class name missing **")
+            return
+        if c_name not in HBNBCommand.classes:  # class name invalid
+            print("** class doesn't exist **")
+            return
+
+        # isolate id from args
+        args = args[2].partition(" ")
+        if args[0]:
+            c_id = args[0]
+        else:  # id not present
+            print("** instance id missing **")
+            return
+
+        # generate key from class and id
+        key = c_name + "." + c_id
+
+        # determine if key is present
+        if key not in storage.all():
+            print("** no instance found **")
+            return
+
+        # first determine if kwargs or args
+        if '{' in args[2] and '}' in args[2] and type(eval(args[2])) is dict:
+            kwargs = eval(args[2])
+            args = []  # reformat kwargs into list, ex: [<name>, <value>, ...]
+            for k, v in kwargs.items():
+                args.append(k)
+                args.append(v)
+        else:  # isolate args
+            args = args[2]
+            if args and args[0] == '\"':  # check for quoted arg
+                second_quote = args.find('\"', 1)
+                att_name = args[1:second_quote]
+                args = args[second_quote + 1:]
+
+            args = args.partition(' ')
+
+            # if att_name was not quoted arg
+            if not att_name and args[0] != ' ':
+                att_name = args[0]
+            # check for quoted val arg
+            if args[2] and args[2][0] == '\"':
+                att_val = args[2][1:args[2].find('\"', 1)]
+
+            # if att_val was not quoted arg
+            if not att_val and args[2]:
+                att_val = args[2].partition(' ')[0]
+
+            args = [att_name, att_val]
+
+        # retrieve dictionary of current objects
+        new_dict = storage.all()[key]
+
+        # iterate through attr names and values
+        for i, att_name in enumerate(args):
+            # block only runs on even iterations
+            if (i % 2 == 0):
+                att_val = args[i + 1]  # following item is value
+                if not att_name:  # check for att_name
+                    print("** attribute name missing **")
+                    return
+                if not att_val:  # check for att_value
+                    print("** value missing **")
+                    return
+                # type cast as necessary
+                if att_name in HBNBCommand.types:
+                    att_val = HBNBCommand.types[att_name](att_val)
+
+                # update dictionary with name, value pair
+                new_dict.__dict__.update({att_name: att_val})
+
+        new_dict.save()  # save updates to file
+
+    def help_update(self):
+        """ Help information for the update class """
+        print("Updates an object with new information")
+        print("Usage: update <className> <id> <attName> <attVal>\n")
+
+if __name__ == "__main__":
+    HBNBCommand().cmdloop()
