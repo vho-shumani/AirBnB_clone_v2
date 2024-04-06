@@ -1,8 +1,9 @@
 #!/usr/bin/python3
-"""Generates a .tgz archive from the contents of the web_static folder"""
+"""Generate .tgz archive"""
 from fabric.operations import local
 from datetime import datetime
 def do_pack():
+    "generates a .tgz archive from the contents of the web_static folder"
     time = datetime.now()
     str_time = strftime(%Y%m%d%H%M%S)
     local('mkdir -p versions')
