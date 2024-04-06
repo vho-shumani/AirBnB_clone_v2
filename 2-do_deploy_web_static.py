@@ -21,7 +21,7 @@ def do_deploy(archive_path):
         run(f"tar -xzf /tmp/{archive} -C {folder}")
         run(f"rm /tmp/{archive}")
         run("rm -rf /data/web_static/current")
-        run(f"ln -s {folder}/ /data/web_static/current")
+        run(f"ln -s {folder} /data/web_static/current")
         return True
     except Exception as e:
         print(e)
