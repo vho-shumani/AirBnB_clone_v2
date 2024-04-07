@@ -10,7 +10,7 @@ env.hosts = ['54.158.176.162', '100.25.199.183']
 
 def do_deploy(archive_path):
     """ distributes an archive to web servers"""
-    if not os.path.exists(archive_path):
+    if os.path.exists(archive_path) is False:
         return False
 
     try:
@@ -20,11 +20,10 @@ def do_deploy(archive_path):
         run(f"mkdir -p {folder}/")
         run(f"tar -xzf /tmp/{archive} -C {folder}/")
         run(f"rm /tmp/{archive}")
-        run(f"mv {folder}/web_static/* {folder}")
+        run(f"mv {folder}/web_static/* {folder}/")
         run(f"rm -rf {folder}/web_static")
         run("rm -rf /data/web_static/current")
         run(f"ln -s {folder}/ /data/web_static/current")
         return True
-    except Exception as e:
-        print(e)
+    except:
         return False
