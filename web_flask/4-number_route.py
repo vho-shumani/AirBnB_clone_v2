@@ -52,5 +52,6 @@ def number(n):
     """
     return f'{n} is a number'
 
+
 if __name__ == "__main__":
     app.run(debug=True, host='0.0.0.0')
