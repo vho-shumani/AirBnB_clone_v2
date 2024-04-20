@@ -32,14 +32,16 @@ def c_route(text):
     text = text.replace("_", " ")
     return f"C {text}"
 
+
 @app.route("/python/<text>", strict_slashes=False)
+@app.route("/python", strict_slashes=False)
 def python_route(text=None):
     """
     Defines a view function for /python/<text> url.
     Returns: (str) text message
     """
     text = text.replace("_", " ") if text else "is cool"
-    return f"python {text}"
+    return f"Python {text}"
 
 
 if __name__ == "__main__":
