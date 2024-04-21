@@ -9,8 +9,8 @@ from models import storage
 app = Flask(__name__)
 
 
-@app.teardown.appcontext
-def teardown():
+@app.teardown_appcontext
+def teardown(exception):
     """remove the current SQLAlchemy Session"""
     storage.close()
     
@@ -18,7 +18,7 @@ def teardown():
 @app.route('/states_list', strict_slashes=False)
 def states():
     """Display a HTML page with a list of all State objects."""
-    sorted_states = storage.all('State').value()
+    states = storage.all('State').values()
     sorted_states = sorted(states, key=lambda x: x.name)
     
     return render_template('7-states_list.html', states=sorted_states)
